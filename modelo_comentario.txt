@@ -1,0 +1,11 @@
+/**
+ * @brief Funcao que destaca os argumentos dentro de uma string.
+ * @param line: Entrada da string a ser processada.
+ * @param args: Vetor de strings (char*) dos argumentos lidos e alocados dentro da funcao.
+ * @return int args_count:
+ * Quantidade de argumentos processados na string.
+ * @note
+ * Essa funcao tambem retorna os argumentos por referencia dentro do vetor char *args[].
+ * O programador deve lembrar que os argumentos sao alocados dentro dessa funcao.
+ * Essa funcao libera o espaco de memoria ocupado pela variavel line.
+ */
