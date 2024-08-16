@@ -8,31 +8,32 @@ void print_prompt()
     printf("fsh> ");
 }
 
-/*TODO: (SIGNALS) VAZAMENTO DE MEMORIA 
+/*TODO: (SIGNALS) VAZAMENTO DE MEMORIA
     Lembrar de liberar a memoria alocada para line no tratamento de interrupcoes.
 */
 char *read_line()
 {
-    char* line = NULL;
+    char *line = NULL;
     size_t size = 0;
-    __ssize_t chars_read;
 
-    chars_read = getline(&line, &size, stdin);
+    getline(&line, &size, stdin);
     line[strcspn(line, "\n")] = 0;
     return line;
 }
 
-int get_commands(char* line, char *commands_vec[])
+int get_commands(char *line, char *commands_vec[])
 {
     int commands_count = 0;
-    char* token = strtok(line,"#");
+    char *token = strtok(line, "#");
 
-    while(token != NULL)
+    while (token != NULL)
     {
-        if(strcmp(token,"\n") == 0) break;
-        if(commands_count >= 5) break;
-        
-        char* new_command = (char*)malloc(strlen(token) + 1);
+        if (strcmp(token, "\n") == 0)
+            break;
+        if (commands_count >= 5)
+            break;
+
+        char *new_command = (char *)malloc(strlen(token) + 1);
         strcpy(new_command, token);
         commands_vec[commands_count++] = new_command;
         token = strtok(NULL, "#");

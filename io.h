@@ -12,7 +12,7 @@ void print_prompt();
  * @note
  * Essa funcao aloca um espaco de memoria para a variavel line.
  */
-char* read_line();
+char *read_line();
 
 /**
  * @brief Funcao que destaca os comandos dentro de uma string.
@@ -25,4 +25,4 @@ char* read_line();
  * O programador deve lembrar que os comandos sao alocados dentro dessa funcao.
  * Essa funcao libera o espaco de memoria ocupado pela variavel line.
  */
-int get_commands(char* line, char *commands_vec[]);
+int get_commands(char *line, char *commands_vec[]);
