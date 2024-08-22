@@ -1,0 +1,1 @@
+Devemos usar um tratador de SIGCHILD para tratar a morte dos filhos da bash (um processo que finaliza devido a um sinal deve matar todos os processos da mesma linha com o mesmo sinal);
