@@ -1,8 +1,9 @@
 make: 
 	gcc -o fsh fsh.c io.c util.c -Wall -Werror -g
 
-v:
-	valgrind -s --leak-check=full ./fsh
+val:
+	echo "FAVOR NAO USAR MAKE PARA RODAR NOSSO CODIGO, OBRIGADO. FAVOR RODAR VALGRIND NA MAO"
+
 
 run:
-	./fsh
+	echo "FAVOR NAO USAR MAKE PARA RODAR NOSSO CODIGO, OBRIGADO. FAVOR RODAR ./fsh"
