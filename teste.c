@@ -16,10 +16,10 @@ int main(){
 
     // free(line);
     char string[10];
-    scanf("%s", string);
-    if(strcmp(string, "die") == 0){
-        printf("die\n");
-    }
+
+    int *vec = (int *)malloc(0 * sizeof(int));
+    vec = (int *)realloc(vec, 1 * sizeof(int));
+    free(vec);
 
     return 0;
 }

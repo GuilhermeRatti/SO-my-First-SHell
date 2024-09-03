@@ -13,12 +13,4 @@ char *remove_whitespace(const char *str);
 //TODO: DOCUMENTAR
 void move_to_foreground(pid_t pgid);
 
-void SIGINT_handler_fsh(int signum);
-
-void SIGSTP_handler_fsh(int signum);
-
-void SIGINT_handler_child(int signum);
-
-void SIGSTP_handler_child(int signum);
-
 

@@ -15,7 +15,6 @@ char *read_line()
 {
     char *line = NULL;
     size_t size = 0;
-
     getline(&line, &size, stdin);
     line[strcspn(line, "\n")] = 0;
     return line;
