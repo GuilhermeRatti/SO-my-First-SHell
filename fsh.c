@@ -8,16 +8,16 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <signal.h>
+#include <err.h>
+#include <errno.h>
 
 // TODO: (SHELLCOMMANDS) IMPLEMENTAR A FUNCAO "WAITALL" DO FSH
 
-int fsh_interrupted = 0;
+int fsh_int_with_children = 0;
+int fsh_int_no_children = 0;
 
 int triplets_amount = 0;
-pid_t **process_triplets; // 0 - pid do processo; 1 - pid do processo em foreground; 2 - pid do grupo de processo em background
-
-// int active_group_ids_count = 0;
-// pid_t *active_group_ids;
+pid_t **process_triplets = NULL; // 0 - pid do processo; 1 - pid do processo em foreground; 2 - pid do grupo de processo em background
 
 // Só mata grupos com processos ativos; ignora indices com -1
 static void _die()
@@ -69,7 +69,10 @@ static pid_t **_register_process(int process_id, int foreground_id, int backgrou
 
     if (!found_place)
     {
-        process_triplets = (pid_t **)realloc(process_triplets, sizeof(pid_t *) * (triplets_amount + 1));
+        if (triplets_amount == 0)
+            process_triplets = (pid_t **)malloc(sizeof(pid_t *) * 1);
+        else
+            process_triplets = (pid_t **)realloc(process_triplets, sizeof(pid_t *) * (triplets_amount + 1));
         process_triplets[triplets_amount] = (pid_t *)malloc(sizeof(pid_t) * 3);
         process_triplets[triplets_amount][0] = process_id;
         process_triplets[triplets_amount][1] = foreground_id;
@@ -86,16 +89,16 @@ void SIGINT_handler_fsh(int signum)
     pid_t pid = waitpid(-1, &status, WNOHANG);
     if (pid == 0)
     {
-        fsh_interrupted = 1;
+        fsh_int_with_children = 1;
     }
-    else if (pid > 0)
+    else if (pid < 0 && errno == ECHILD)
     {
-        kill(getpid(), SIGINT);
+        fsh_int_no_children = 1;
     }
     else
     {
-        perror("waitpid failed");
-        exit(-1); // Erro ao verificar processos filhos
+        perror("Somehow fsh SIGINT failed");
+        exit(-1);
     }
 }
 
@@ -108,7 +111,12 @@ void SIGINT_handler_child(int singum)
 
 void SIGSTP_handler_fsh(int signum)
 {
-    killpg(getpgrp(), SIGSTOP);
+    for (int i = 0; i < triplets_amount; i++)
+    {
+        // printf("Trying to kill %d\n", active_group_ids[i]);
+        if (process_triplets[i][0] != -1)
+            killpg(process_triplets[i][0], SIGSTOP);
+    }
 }
 
 void SIGSTP_handler_child(int signum)
@@ -132,32 +140,75 @@ int main()
         exit(EXIT_FAILURE);
     }
 
+    struct sigaction fsh_sigstp;
+    sigemptyset(&fsh_sigstp.sa_mask);
+    fsh_sigstp.sa_handler = SIGSTP_handler_fsh;
+    fsh_sigstp.sa_flags = 0;
+
+    if (sigaction(SIGTSTP, &fsh_sigstp, NULL) < 0)
+    {
+        perror("fsh sigstp failed");
+        exit(EXIT_FAILURE);
+    }
+
     // TODO: (SIGNALS) IMPLEMENTAR TRATAMENTO DE SINAIS
     //  Lembrar de implementar tratamento de interrupcoes para o pai. Ate agora, estamos usando um loop finito para determinar o comportamento da fsh.
-
-    process_triplets = (pid_t **)malloc(sizeof(pid_t *) * 0); // Simplesmente inicializa o vetor de tuplas de processos
 
     while (1)
     {
         print_prompt();
         char *line = read_line();
-        if(line == NULL && fsh_interrupted)
+        if (line == NULL && fsh_int_with_children)
         {
-            fsh_interrupted = 0;
-            /*
-                Tratamento do CTRL+C
-            */
+            fsh_int_with_children = 0;
+            char option;
+            for (int i = 0; i < triplets_amount; i++)
+            {
+                // printf("Trying to kill %d\n", active_group_ids[i]);
+                if (process_triplets[i][0] != -1)
+                    killpg(process_triplets[i][0], SIGSTOP);
+            }
+
+            printf("\nAinda existem processos rodando. Tem certeza que deseja finalizar a fsh? (y/n): ");
+            scanf("%c", &option);
+
+            if (option == 'y' || option == 'Y')
+            {
+                free(line);
+                _die();
+            }
+            else
+            {
+                // Limpa o buffer de entrada descartando tudo até o fim da linha
+                scanf("%*[^\n]");
+                getchar(); // captura o \n deixado para trás
+
+                for (int i = 0; i < triplets_amount; i++)
+                {
+                    // printf("Trying to kill %d\n", active_group_ids[i]);
+                    if (process_triplets[i][0] != -1)
+                        killpg(process_triplets[i][0], SIGCONT);
+                }
+            }
+
             continue;
         }
-        else if(line == NULL)
+        else if (line == NULL && fsh_int_no_children)
         {
-            perror("read_line failed");
-            exit(EXIT_FAILURE);
+            fsh_int_no_children = 0;
+            free(line);
+            _die();
         }
+        else if (line == NULL)
+        {
+            printf("\n");
+            continue;
+        }
+
         int commands_count = get_commands(line, commands_vec);
         pid_t foreground_pid = 0, background_pgid = 0, command_pid = 0;
 
-        // TODO: (SHELLCOMMANDS) IMPLEMENTAR VERIFICACAO DE COMANDOS DE SHELL
+        // TODO: (SHELLCOMMANDS) IMPLEMENTAR VERIFICACAO DE COMANDOS DE SHELL (falta waitall)
         //  Implementar verificacao de comandos de shell para a fsh antes de executar os comandos (novos processos).
         for (int i = 0; i < commands_count; i++)
         {

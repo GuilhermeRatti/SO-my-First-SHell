@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <err.h>
-#include <errno.h>  // Include this header for errno and EINTR
+#include <errno.h>
 
 
 
@@ -12,9 +12,6 @@ void print_prompt()
     printf("fsh> ");
 }
 
-/*TODO: (SIGNALS) VAZAMENTO DE MEMORIA
-    Lembrar de liberar a memoria alocada para line no tratamento de interrupcoes.
-*/
 char *read_line()
 {
     char *line = NULL; 
