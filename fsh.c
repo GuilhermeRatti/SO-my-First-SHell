@@ -11,22 +11,24 @@
 
 // TODO: (SHELLCOMMANDS) IMPLEMENTAR A FUNCAO "WAITALL" DO FSH
 
+int fsh_interrupted = 0;
+
 int triplets_amount = 0;
 pid_t **process_triplets; // 0 - pid do processo; 1 - pid do processo em foreground; 2 - pid do grupo de processo em background
 
-int active_group_ids_count = 0;
-pid_t *active_group_ids;
+// int active_group_ids_count = 0;
+// pid_t *active_group_ids;
 
 // Só mata grupos com processos ativos; ignora indices com -1
 static void _die()
 {
-    for (int i = 0; i < active_group_ids_count; i++)
+    for (int i = 0; i < triplets_amount; i++)
     {
         // printf("Trying to kill %d\n", active_group_ids[i]);
-        if (active_group_ids[i] != -1)
-            killpg(active_group_ids[i], SIGKILL);
+        if (process_triplets[i][0] != -1)
+            killpg(process_triplets[i][0], SIGKILL);
     }
-    free(active_group_ids);
+    // free(active_group_ids);
 
     for (int i = 0; i < triplets_amount; i++)
     {
@@ -38,26 +40,28 @@ static void _die()
 }
 
 // Verifica se cada grupo possui ao menos 1 processo ativo; senão, define indice como -1
-static void _check_groups(pid_t *active_group_ids, int active_group_ids_count)
+static void _check_groups()
 {
-    for (int i = 0; i < active_group_ids_count; i++)
+    for (int i = 0; i < triplets_amount; i++)
     {
-        if (killpg(active_group_ids[i], 0) == -1)
+        if (killpg(process_triplets[i][0], 0) == -1)
         {
-            active_group_ids[i] = -1;
+            process_triplets[i][0] = -1;
         }
     }
 }
 
 // Verifica se ha algum espaco livre (-1) em algum indice; senao, aloca espaco para mais um grupo
-static pid_t *_register_group(pid_t *active_group_ids, int *active_group_ids_count, int current_group_id)
+static pid_t **_register_process(int process_id, int foreground_id, int background_id)
 {
     int found_place = 0;
-    for (int i = 0; i < *active_group_ids_count; i++)
+    for (int i = 0; i < triplets_amount; i++)
     {
-        if (active_group_ids[i] == -1)
+        if (process_triplets[i][0] == -1)
         {
-            active_group_ids[i] = current_group_id;
+            process_triplets[i][0] = process_id;
+            process_triplets[i][1] = foreground_id;
+            process_triplets[i][2] = background_id;
             found_place = 1;
             break;
         }
@@ -65,48 +69,24 @@ static pid_t *_register_group(pid_t *active_group_ids, int *active_group_ids_cou
 
     if (!found_place)
     {
-        *active_group_ids_count += 1;
-        active_group_ids = (pid_t *)realloc(active_group_ids, sizeof(pid_t) * (*active_group_ids_count));
-        active_group_ids[*active_group_ids_count - 1] = current_group_id;
+        process_triplets = (pid_t **)realloc(process_triplets, sizeof(pid_t *) * (triplets_amount + 1));
+        process_triplets[triplets_amount] = (pid_t *)malloc(sizeof(pid_t) * 3);
+        process_triplets[triplets_amount][0] = process_id;
+        process_triplets[triplets_amount][1] = foreground_id;
+        process_triplets[triplets_amount][2] = background_id;
+        triplets_amount++;
     }
 
-    return active_group_ids;
+    return process_triplets;
 }
 
 void SIGINT_handler_fsh(int signum)
 {
     int status;
-    char option;
     pid_t pid = waitpid(-1, &status, WNOHANG);
     if (pid == 0)
     {
-        for (int i = 0; i < active_group_ids_count; i++)
-        {
-            // printf("Trying to kill %d\n", active_group_ids[i]);
-            if (active_group_ids[i] != -1)
-                killpg(active_group_ids[i], SIGSTOP);
-        }
-
-        printf("\nAinda existem processos rodando. Tem certeza que deseja finalizar a fsh? (y/n): ");
-        scanf("%c", &option);
-
-        if (option == 'y' || option == 'Y')
-        {
-            _die();
-        }
-        else
-        {
-            // Limpa o buffer de entrada descartando tudo até o fim da linha
-            scanf("%*[^\n]");
-            getchar(); // captura o \n deixado para trás
-
-            for (int i = 0; i < active_group_ids_count; i++)
-            {
-                // printf("Trying to kill %d\n", active_group_ids[i]);
-                if (active_group_ids[i] != -1)
-                    killpg(active_group_ids[i], SIGCONT);
-            }
-        }
+        fsh_interrupted = 1;
     }
     else if (pid > 0)
     {
@@ -144,7 +124,7 @@ int main()
     struct sigaction fsh_sigint;
     sigemptyset(&fsh_sigint.sa_mask);
     fsh_sigint.sa_handler = SIGINT_handler_fsh;
-    fsh_sigint.sa_flags = SA_RESTART;
+    fsh_sigint.sa_flags = 0;
 
     if (sigaction(SIGINT, &fsh_sigint, NULL) < 0)
     {
@@ -155,15 +135,25 @@ int main()
     // TODO: (SIGNALS) IMPLEMENTAR TRATAMENTO DE SINAIS
     //  Lembrar de implementar tratamento de interrupcoes para o pai. Ate agora, estamos usando um loop finito para determinar o comportamento da fsh.
 
-    active_group_ids_count = 1;
-    active_group_ids = (pid_t *)malloc(sizeof(pid_t) * 1);
-    active_group_ids[0] = -1;
     process_triplets = (pid_t **)malloc(sizeof(pid_t *) * 0); // Simplesmente inicializa o vetor de tuplas de processos
 
     while (1)
     {
         print_prompt();
         char *line = read_line();
+        if(line == NULL && fsh_interrupted)
+        {
+            fsh_interrupted = 0;
+            /*
+                Tratamento do CTRL+C
+            */
+            continue;
+        }
+        else if(line == NULL)
+        {
+            perror("read_line failed");
+            exit(EXIT_FAILURE);
+        }
         int commands_count = get_commands(line, commands_vec);
         pid_t foreground_pid = 0, background_pgid = 0, command_pid = 0;
 
@@ -182,7 +172,7 @@ int main()
                 }
 
                 // Verifica se os grupos de processos ainda estão ativos antes de matar todos.
-                _check_groups(active_group_ids, active_group_ids_count);
+                _check_groups();
                 _die();
             }
             free(cleaned_command);
@@ -199,30 +189,18 @@ int main()
             }
             if (i >= 1)
             {
-                process_triplets = (pid_t **)realloc(process_triplets, sizeof(pid_t *) * (triplets_amount + 1));
-                process_triplets[triplets_amount] = (pid_t *)malloc(sizeof(pid_t) * 3);
-                process_triplets[triplets_amount][0] = command_pid;
-                process_triplets[triplets_amount][1] = foreground_pid;
-                process_triplets[triplets_amount][2] = background_pgid;
-                triplets_amount++;
-
+                process_triplets = _register_process(command_pid, foreground_pid, background_pgid);
                 setpgid(command_pid, background_pgid);
             }
 
             free(commands_vec[i]);
         }
 
-        process_triplets = (pid_t **)realloc(process_triplets, sizeof(pid_t *) * (triplets_amount + 1));
-        process_triplets[triplets_amount] = (pid_t *)malloc(sizeof(pid_t) * 3);
-        process_triplets[triplets_amount][0] = foreground_pid;
-        process_triplets[triplets_amount][1] = foreground_pid;
-        process_triplets[triplets_amount][2] = background_pgid;
-        triplets_amount++;
+        process_triplets = _register_process(foreground_pid, foreground_pid, background_pgid);
 
         // Verifica se algum grupo de processo foi finalizado para sinalizar espaço livre.
-        _check_groups(active_group_ids, active_group_ids_count);
+        _check_groups();
         // Registra o grupo de processos em um espaço livre ou aloca espaço extra, se neceesario.
-        active_group_ids = _register_group(active_group_ids, &active_group_ids_count, foreground_pid);
         setpgid(getpid(), getppid());
         if (foreground_pid)
             wait_for_child(foreground_pid);

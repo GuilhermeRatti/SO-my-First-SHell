@@ -2,6 +2,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <err.h>
+#include <errno.h>  // Include this header for errno and EINTR
+
+
 
 void print_prompt()
 {
@@ -13,9 +17,22 @@ void print_prompt()
 */
 char *read_line()
 {
-    char *line = NULL;
+    char *line = NULL; 
     size_t size = 0;
-    getline(&line, &size, stdin);
+    int ret = getline(&line, &size, stdin);
+    if(ret < 0 && errno == EINTR)
+    {
+        clearerr(stdin);
+        errno = 0;
+        if(line != NULL)
+            free(line);
+        return NULL;
+    }
+    else if(ret < 0)
+    {
+        err(EXIT_FAILURE, "read_line failed");
+    }
+
     line[strcspn(line, "\n")] = 0;
     return line;
 }
