@@ -27,6 +27,8 @@ char *read_line()
     }
     else if(ret < 0)
     {
+        printf("%s\n", strerror(errno));
+        printf("%s\n",line);
         err(EXIT_FAILURE, "read_line failed");
     }
 

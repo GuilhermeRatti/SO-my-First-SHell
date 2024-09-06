@@ -11,8 +11,6 @@
 #include <err.h>
 #include <errno.h>
 
-// TODO: (SHELLCOMMANDS) IMPLEMENTAR A FUNCAO "WAITALL" DO FSH
-
 int fsh_int_with_children = 0;
 int fsh_int_no_children = 0;
 
@@ -26,7 +24,7 @@ static void _die()
     {
         // printf("Trying to kill %d\n", active_group_ids[i]);
         if (process_triplets[i][0] != -1)
-            kill(process_triplets[i][0], SIGKILL);
+            killpg(process_triplets[i][0], SIGKILL);
     }
     // free(active_group_ids);
 
@@ -39,44 +37,12 @@ static void _die()
     exit(EXIT_SUCCESS);
 }
 
-static void _waitall()
-{
-    int status;
-    pid_t pid;
-
-    // Usar um loop para ceifar todos os processos zumbis ao fazer a "autopsia dos corpos"
-    while ((pid = waitpid(-1, &status, WNOHANG)) > 0)
-    {
-        if (WIFEXITED(status))
-        {
-            printf("Process %d exited with status %d.\n", pid, WEXITSTATUS(status));
-        }
-        else if (WIFSIGNALED(status))
-        {
-            printf("Process %d was killed by signal %d.\n", pid, WTERMSIG(status));
-        }
-        else if (WIFSTOPPED(status))
-        {
-            printf("Process %d was stopped by signal %d.\n", pid, WSTOPSIG(status));
-        }
-        else if (WIFCONTINUED(status))
-        {
-            printf("Process %d was continued.\n", pid);
-        }
-    }
-
-    if (pid == -1 && errno != ECHILD)
-    {
-        perror("waitpid");
-    }
-}
-
 // Verifica se cada grupo possui ao menos 1 processo ativo; senão, define indice como -1
 static void _check_groups()
 {
     for (int i = 0; i < triplets_amount; i++)
     {
-        if (kill(process_triplets[i][0], 0) == -1)
+        if (killpg(process_triplets[i][0], 0) == -1)
         {
             process_triplets[i][0] = -1;
         }
@@ -235,9 +201,6 @@ int main()
         exit(EXIT_FAILURE);
     }
 
-    // TODO: (SIGNALS) IMPLEMENTAR TRATAMENTO DE SINAIS
-    //  Lembrar de implementar tratamento de interrupcoes para o pai. Ate agora, estamos usando um loop finito para determinar o comportamento da fsh.
-
     while (1)
     {
         print_prompt();
@@ -292,8 +255,6 @@ int main()
         int commands_count = get_commands(line, commands_vec);
         pid_t foreground_pid = 0, background_pgid = 0, command_pid = 0;
 
-        // TODO: (SHELLCOMMANDS) IMPLEMENTAR VERIFICACAO DE COMANDOS DE SHELL (falta waitall)
-        //  Implementar verificacao de comandos de shell para a fsh antes de executar os comandos (novos processos).
         for (int i = 0; i < commands_count; i++)
         {
             char *cleaned_command = remove_whitespace(commands_vec[i]);
@@ -312,13 +273,17 @@ int main()
             }
             if (strcmp(cleaned_command, "waitall") == 0)
             {
-                _waitall();
-                continue;
+                // TODO: (DOCUMENTAR) FALAR SOBRE NOSSA LIMITACAO EM RELACAO AO WAITALL COM PROCESSOS NETOS
+                free(cleaned_command);
+                kill(getpid(), SIGCHLD);
+                // continue;
             }
-            free(cleaned_command);
+            else
+            {
+                free(cleaned_command);
 
-            command_pid = command_execution(commands_vec[i], i);
-
+                command_pid = command_execution(commands_vec[i], i);
+            }
             if (i == 0)
             {
                 foreground_pid = command_pid;
