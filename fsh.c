@@ -26,7 +26,7 @@ static void _die()
     {
         // printf("Trying to kill %d\n", active_group_ids[i]);
         if (process_triplets[i][0] != -1)
-            killpg(process_triplets[i][0], SIGKILL);
+            kill(process_triplets[i][0], SIGKILL);
     }
     // free(active_group_ids);
 
@@ -39,12 +39,44 @@ static void _die()
     exit(EXIT_SUCCESS);
 }
 
+static void _waitall()
+{
+    int status;
+    pid_t pid;
+
+    // Usar um loop para ceifar todos os processos zumbis ao fazer a "autopsia dos corpos"
+    while ((pid = waitpid(-1, &status, WNOHANG)) > 0)
+    {
+        if (WIFEXITED(status))
+        {
+            printf("Process %d exited with status %d.\n", pid, WEXITSTATUS(status));
+        }
+        else if (WIFSIGNALED(status))
+        {
+            printf("Process %d was killed by signal %d.\n", pid, WTERMSIG(status));
+        }
+        else if (WIFSTOPPED(status))
+        {
+            printf("Process %d was stopped by signal %d.\n", pid, WSTOPSIG(status));
+        }
+        else if (WIFCONTINUED(status))
+        {
+            printf("Process %d was continued.\n", pid);
+        }
+    }
+
+    if (pid == -1 && errno != ECHILD)
+    {
+        perror("waitpid");
+    }
+}
+
 // Verifica se cada grupo possui ao menos 1 processo ativo; senão, define indice como -1
 static void _check_groups()
 {
     for (int i = 0; i < triplets_amount; i++)
     {
-        if (killpg(process_triplets[i][0], 0) == -1)
+        if (kill(process_triplets[i][0], 0) == -1)
         {
             process_triplets[i][0] = -1;
         }
@@ -83,6 +115,54 @@ static pid_t **_register_process(int process_id, int foreground_id, int backgrou
     return process_triplets;
 }
 
+void sigchld_handler(int sig)
+{
+    int status;
+    pid_t pid;
+
+    // Usar um loop para lidar com múltiplos filhos que podem ter terminado
+    while ((pid = waitpid(-1, &status, WNOHANG | WUNTRACED)) > 0)
+    {
+        if (WIFEXITED(status))
+        {
+            // Muito bem, nao precisa fazer nada, que maravilha! :^)
+        }
+        else if (WIFSIGNALED(status))
+        {
+            // Vamos ter que achar o grupo de background e foreground desse processo...
+            for (int i = 0; i < triplets_amount; i++)
+            {
+                if (process_triplets[i][0] == pid)
+                {
+                    kill(process_triplets[i][1], WTERMSIG(status));
+                    killpg(process_triplets[i][2], WTERMSIG(status));
+                    break;
+                }
+            }
+            // printf("Process %d was killed by signal %d.\n", pid, WTERMSIG(status));
+        }
+        else if (WIFSTOPPED(status))
+        {
+            // Vamos ter que achar o grupo de background e foreground desse processo...
+            for (int i = 0; i < triplets_amount; i++)
+            {
+                if (process_triplets[i][0] == pid)
+                {
+                    kill(process_triplets[i][1], WSTOPSIG(status));
+                    killpg(process_triplets[i][2], WSTOPSIG(status));
+                    break;
+                }
+            }
+            // printf("Process %d was stopped by signal %d.\n", pid, WSTOPSIG(status));
+        }
+    }
+
+    if (pid == -1 && errno != ECHILD)
+    {
+        perror("waitpid SIGCHILD");
+    }
+}
+
 void SIGINT_handler_fsh(int signum)
 {
     int status;
@@ -115,15 +195,8 @@ void SIGSTP_handler_fsh(int signum)
     {
         // printf("Trying to kill %d\n", active_group_ids[i]);
         if (process_triplets[i][0] != -1)
-            killpg(process_triplets[i][0], SIGSTOP);
+            kill(process_triplets[i][0], SIGSTOP);
     }
-}
-
-void SIGSTP_handler_child(int signum)
-{
-    pid_t pgid = getpgrp();
-    printf("Processo %d bloqueado com status 148\n", pgid);
-    killpg(pgid, SIGSTOP);
 }
 
 int main()
@@ -148,6 +221,17 @@ int main()
     if (sigaction(SIGTSTP, &fsh_sigstp, NULL) < 0)
     {
         perror("fsh sigstp failed");
+        exit(EXIT_FAILURE);
+    }
+
+    struct sigaction fsh_sigchild;
+    fsh_sigchild.sa_handler = sigchld_handler;
+    sigemptyset(&fsh_sigchild.sa_mask);
+    fsh_sigchild.sa_flags = SA_RESTART | SA_NOCLDSTOP;
+
+    if (sigaction(SIGCHLD, &fsh_sigchild, NULL) == -1)
+    {
+        perror("sigaction");
         exit(EXIT_FAILURE);
     }
 
@@ -226,6 +310,11 @@ int main()
                 _check_groups();
                 _die();
             }
+            if (strcmp(cleaned_command, "waitall") == 0)
+            {
+                _waitall();
+                continue;
+            }
             free(cleaned_command);
 
             command_pid = command_execution(commands_vec[i], i);
@@ -262,7 +351,41 @@ int main()
 void wait_for_child(pid_t foreground_pid)
 {
     int status;
-    pid_t pid = waitpid(foreground_pid, &status, 0);
+    pid_t pid = waitpid(foreground_pid, &status, WUNTRACED);
+
+    if (WIFEXITED(status))
+    {
+        // Muito bem, nao precisa fazer nada, que maravilha! :^)
+    }
+    else if (WIFSIGNALED(status))
+    {
+        // Vamos ter que achar o grupo de background e foreground desse processo...
+        for (int i = 0; i < triplets_amount; i++)
+        {
+            if (process_triplets[i][0] == pid)
+            {
+                kill(process_triplets[i][1], WTERMSIG(status));
+                killpg(process_triplets[i][2], WTERMSIG(status));
+                break;
+            }
+        }
+        // printf("Process %d was killed by signal %d.\n", pid, WTERMSIG(status));
+    }
+    else if (WIFSTOPPED(status))
+    {
+        // Vamos ter que achar o grupo de background e foreground desse processo...
+        for (int i = 0; i < triplets_amount; i++)
+        {
+            if (process_triplets[i][0] == pid)
+            {
+                kill(process_triplets[i][1], WSTOPSIG(status));
+                killpg(process_triplets[i][2], WSTOPSIG(status));
+                break;
+            }
+        }
+        // printf("Process %d was stopped by signal %d.\n", pid, WSTOPSIG(status));
+    }
+
     setpgid(getpid(), getpid());
 
     printf("Processo %d finalizado com status %d\n", pid, status);
@@ -301,6 +424,17 @@ pid_t command_execution(char *command, int command_position)
     // Filho executa o processo
     if (pid == 0)
     {
+        struct sigaction child_sigint;
+        sigemptyset(&child_sigint.sa_mask);
+        child_sigint.sa_handler = SIG_IGN; // Ignorar SIGINT
+        child_sigint.sa_flags = 0;
+
+        if (sigaction(SIGINT, &child_sigint, NULL) < 0)
+        {
+            perror("fsh sigint failed");
+            exit(EXIT_FAILURE);
+        }
+
         // Se nao for o primeiro comando (em foreground), redireciona a saida padrao dos processos em background para "/dev/null".
         if (command_position)
         {
@@ -311,6 +445,10 @@ pid_t command_execution(char *command, int command_position)
         }
 
         execv(bin_path, args_vec);
+
+        // Se o execv falhar, o filho deve encerrar.
+        perror("execv failed");
+        exit(EXIT_FAILURE);
     }
 
     // O pai trata de liberar a memoria alocada
